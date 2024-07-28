@@ -1,0 +1,111 @@
+- name: Install GPG and software properties on CentOS
+  yum:
+    name:
+      - gnupg2
+      - yum-utils
+    state: present
+  when: ansible_distribution == 'CentOS'
+
+- name: Install GPG and software properties on Ubuntu
+  apt:
+    name:
+      - gnupg
+      - software-properties-common
+    state: present
+    update_cache: yes
+    cache_valid_time: 3600
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Add Grafana GPG key on CentOS
+  rpm_key:
+    state: present
+    url: "https://packages.grafana.com/gpg.key"
+  when: ansible_distribution == 'CentOS'
+
+- name: Add Grafana GPG key on Ubuntu
+  apt_key:
+    url: "https://packages.grafana.com/gpg.key"
+    validate_certs: no
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Add Grafana repository on CentOS
+  yum_repository:
+    name: grafana
+    description: Grafana OSS
+    baseurl: https://packages.grafana.com/oss/rpm
+    gpgcheck: yes
+    gpgkey: https://packages.grafana.com/gpg.key
+    enabled: yes
+  when: ansible_distribution == 'CentOS'
+
+- name: Add Grafana repository on Ubuntu
+  apt_repository:
+    repo: "deb https://packages.grafana.com/oss/deb stable main"
+    state: present
+    validate_certs: no
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Install Grafana on CentOS
+  yum:
+    name: grafana
+    state: latest
+  when: ansible_distribution == 'CentOS'
+
+- name: Install Grafana on Ubuntu
+  apt:
+    name: grafana
+    state: latest
+    update_cache: yes
+    cache_valid_time: 3600
+  when: ansible_distribution == 'Ubuntu'
+
+- name: change Admin user
+  lineinfile:
+    path: /etc/grafana/grafana.ini
+    regexp: "{{ items.before }}"
+    line: "{{ items.after }}"
+  with_items:
+  - { before: "^;admin_user=admin", after: "admin_user={{ grafana_admin_user }}" }
+  - { before: "^;admin_password+admin", after: "admin_password={{grafana_admin_password }}" } 
+
+- name: start service grafana
+  systemd:
+    name: grafana-server
+    state: started
+    enabled: true
+
+- name: waiting for service up
+  uri:
+    url: "http://127.0.0.1:3000"
+  register: _result
+  until: _result.status == 200
+  retries: 120
+  delay: 1
+- name: change admin password for grafana gui
+  shell : "grafana-cli admin reset-admin-password {{ grafana_admin_password }}"
+  register: __command_admin
+  changed_when: __command_admin.rc !=0
+
+- name: add prometheus datasource
+  grafana_datasource:
+    name: "prometheus-local"
+    grafana_url: "http://127.0.0.1:3000"
+    grafana_user: "{{ grafana_admin_user }}"
+    grafana_password: "{{ grafana_admin_password }}"
+    org_id: "1"
+    ds_type: "prometheus"
+    ds_url: "http://127.0.0.1:9090"
+  changed_when: false
+
+- name: install node exporter dashboard
+  get_url:
+    url: https://raw.githubusercontent.com/rfrail3/grafana-dashboards/master/prometheus/node-exporter-full.json
+    dest: /var/lib/grafana/node-exporter.json
+    mode: '0755'
+
+- name: activate dashboard for node exporter
+  template:
+    src: dashboard-node-exporter.yml.j2
+    dest: /etc/grafana/provisioning/dashboards/dashboard-node-exporter.yml
+    mode: 0755
+  notify: restart_grafana

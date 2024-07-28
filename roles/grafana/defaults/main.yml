@@ -1,0 +1,6 @@
+---
+# defaults file for grafana
+
+grafana_admin_user: "romuald"
+grafana_admin_password: "password"
+
