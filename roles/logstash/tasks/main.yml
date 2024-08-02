@@ -1,2 +1,91 @@
----
-# tasks file for logstash
+- name: Ensure required packages are installed for apt (Debian/Ubuntu) or yum (Red Hat/CentOS)
+  block:
+    - name: ensure apt-transport-https is installed (Debian/Ubuntu)
+      apt:
+        name: apt-transport-https
+        state: present
+        cache_valid_time: 3600
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install yum-utils (RedHat/CentOS)
+      yum:
+        name: yum-utils
+        state: present
+      when: ansible_os_family == "RedHat"
+
+- name: Add Elasticsearch repository key
+  block:
+    - name: Debian - Add Elasticsearch repository key
+      apt_key:
+        url: "{{ logstash_elastic_url }}/GPG-KEY-elasticsearch"
+        id: "{{ logstash_elastic_key_apt_id }}"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: RedHat/CentOS - Add Elasticsearch repository key
+      rpm_key:
+        key: "{{ logstash_elastic_url }}/GPG-KEY-elasticsearch"
+      when: ansible_os_family == "RedHat"
+
+- name: Add Elasticsearch repository
+  block:
+    - name: Debian - Add elasticsearch repository
+      apt_repository:
+        repo: "deb {{ logstash_elastic_url }}/packages/{{ logstash_elastic_version }}/apt stable main"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: RedHat/CentOS - Add elasticsearch yum repository
+      yum_repository:
+        name: elasticsearch
+        description: "Elastic repository"
+        baseurl: "{{ logstash_elastic_url }}/packages/{{ logstash_elastic_version }}/yum"
+        gpgcheck: yes
+        gpgkey: "{{ logstash_elastic_url }}/GPG-KEY-elasticsearch"
+        enabled: yes
+      when: ansible_os_family == "RedHat"
+
+- name: Install logstash
+  block:
+    - name: Install logstash on (Debian/Ubuntu)
+      apt:
+        name: logstash
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+    - name: Install logstash on (RedHat/CentOS)
+      yum:
+        name:
+         - logstash
+        state: present
+      when: ansible_os_family == "RedHat"
+
+
+- name: add user for logstash
+  user:
+    name: logstash
+    group: logstash
+    groups:
+      - adm
+
+
+- name: create the default configuration file
+  template:
+    src: "{{ item }}.j2"
+    dest: "/etc/logstash/conf.d/{{ item }}"
+    owner: logstash
+    group: logstash
+    mode: 0644
+  with_items:
+  - default.conf
+  notify: restart_logstash
+
+- name: ensure logstash is started
+  service:
+    name: logstash
+    state: started
+    enabled: yes
+
+          

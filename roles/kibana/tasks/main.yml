@@ -1,2 +1,79 @@
----
-# tasks file for kibana
+- name: Ensure required packages are installed for apt (Debian/Ubuntu) or yum (Red Hat/CentOS)
+  block:
+    - name: Install apt-transport-https (Ubuntu/Debian)
+      apt:
+        name: apt-transport-https
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Install yum-utils (RedHat/CentOS)
+      yum:
+        name: yum-utils
+        state: present
+      when: ansible_os_family == "RedHat"
+
+- name: Add Elastic repository key
+  block:
+    - name: Add Elastic GPG key (Ubuntu/Debian)
+      apt_key:
+        url: "{{ kibana_elastic_url }}/GPG-KEY-elasticsearch"
+        id: "{{ kibana_elastic_key_apt_id }}"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Add Elastic GPG key (RedHat/CentOS)
+      rpm_key:
+        key: "{{ kibana_elastic_url }}/GPG-KEY-elasticsearch"
+      when: ansible_os_family == "RedHat"
+
+- name: Add Elasticsearch repository
+  block:
+    - name: Add Elasticsearch APT repository (Ubuntu/Debian)
+      apt_repository:
+        repo: "deb {{ kibana_elastic_url }}/packages/{{ kibana_elastic_version }}/apt stable main"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Add Elasticsearch YUM repository (RedHat/CentOS)
+      yum_repository:
+        name: elasticsearch
+        description: "Elastic repository"
+        baseurl: "{{ kibana_elastic_url }}/packages/{{ kibana_elastic_version }}/yum"
+        gpgcheck: yes
+        gpgkey: "{{ kibana_elastic_url }}/GPG-KEY-elasticsearch"
+        enabled: yes
+      when: ansible_os_family == "RedHat"
+
+- name: Update repositories cache and install Kibana
+  block:
+    - name: Update APT cache and install Kibana (Ubuntu/Debian)
+      apt:
+        name: kibana
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Install Kibana (RedHat/CentOS)
+      yum:
+        name: kibana
+        state: present
+      when: ansible_os_family == "RedHat"
+
+- name: Updating the config file to restrict outside access
+  lineinfile:
+    destfile: /etc/kibana/kibana.yml
+    regexp: "{{item.target}}"
+    line: "{{item.replace}}"
+  with_items:
+  - { target: "server.host:", replace: "server.host: 0.0.0.0"}
+  - { target: "#elasticsearch.hosts", replace: "elasticsearch.hosts: [\"http://192.168.13.10:9200\",\"http://192.168.13.11:9200\"]"}  
+  notify: restart_kibana
+
+- name: Enabling Kibana service
+  service:
+    name: kibana
+    state: started
+    enabled: yes
